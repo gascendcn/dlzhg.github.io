@@ -1,0 +1,51 @@
+﻿<!DOCTYPE html>
+
+<html>
+  <head>
+    <title>Magnetics</title>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <link rel="stylesheet" href="styles.css">
+
+    <script src="aframe.min.js"></script>
+    <script src="aframe-ar.js"></script>
+    <script src="gesture-detector.js"></script>
+    <script src="gesture-handler.js"></script>
+  </head>
+
+  <body>
+      <a-scene arjs
+               embedded
+               renderer="logarithmicDepthBuffer: true;"
+               vr-mode-ui="enabled: false"
+               gesture-detector
+               id="scene">
+          <a-assets>
+              <a-asset-item id="bowser"
+                            src="https://cdn.glitch.com/41166c32-48f1-4544-a272-97f71f52266c%2Fsubmarine.glb">
+              </a-asset-item>
+          </a-assets>
+
+          <a-marker preset="hiro"
+        raycaster="objects: .clickable"
+        emitevents="true"
+        cursor="fuse: false; rayOrigin: mouse;"
+        id="markerA"> 
+          <!-- <a-marker-camera
+    type ="pattern"
+    patternUrl="pattern1.patt"></a-marker-camera>
+          <a-marker type="pattern"
+                    patternUrl="pattern1.patt">-->
+
+          <a-entity id="bowser-model"
+                    gltf-model="#bowser"
+                    position="0 0 0"
+                    scale="1.05 1.05 1.05"
+                    class="clickable"
+                    gesture-handler>
+          </a-entity>
+          </a-marker>
+          <a-entity camera></a-entity>
+      </a-scene>
+  </body>
+</html>
