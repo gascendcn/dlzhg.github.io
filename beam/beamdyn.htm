@@ -1,0 +1,512 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+	<head>
+		<title>Dynamic beam</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #ffffff;
+				margin: 0px;
+				overflow: hidden;
+			}
+		</style>
+	</head>
+	<body>
+
+        <script src="three.min.js"></script>
+        <!--script src="TrackballControls.js"></script-->
+        <script src="dat.gui.min.js"></script>
+        <!--script src="Data.js"></script-->
+        <script src="rainbowvis.js"></script>
+        
+        <script type="text/javascript" src="parametros.js"></script>
+        <script type="text/javascript" src="malla.js"></script>
+        <script type="text/javascript" src="FVCoor.js"></script>
+        <script type="text/javascript" src="FVU.js"></script>
+        <script type="text/javascript" src="FVV.js"></script>
+        <script type="text/javascript" src="FVA.js"></script>
+        <script type="text/javascript" src="FVI.js"></script>
+        <script type="text/javascript" src="FVS.js"></script>
+
+
+		<script>
+
+		    var container;
+		    var camera, controls, scene, renderer;
+		    var figure;
+		    var start = Date.now();
+		    var escala = 200;
+		    var time1,time2, deltatime;
+
+            // Slider control
+		    var slider = {
+		        xLoc: 0,
+                xLastLoc: 0,
+                zLoc: 1,
+                zLastLoc: 1
+            };
+
+            // Librería Rainbow
+            var MAX_DESPL = 0.01*escala;
+            var rainbow = new Rainbow();
+            rainbow.setNumberRange(0, 100);
+            rainbow.setSpectrum('blue', 'teal', 'yellow', 'orange', 'red');
+            
+            //problema de dinamica. Uso la misma nomenclatura que David en Matlab
+            var VfT = new Array(NumGdl);//ux,uy,uz de los grados de libertad en n+1   
+            var V2fT = new Array(NumGdl);//ux,uy,uz de los grados de libertad en n+1/2            
+            var V2f = new Array(NumModPOD);//u en n+1/2 en base reducida
+            var Ve2 = new Array(NumModPOD);//v en n+1/2 en base reducida
+            
+            var LoadPosition = -1;
+            var LastLoadPosition = -1;	
+            
+            var deltat = 0.00125;//ponerlo variable, ajustado a la velocidad real de calculo
+            
+            init();
+		    animate();
+
+		    function init() {
+
+                //// CAMERA ////
+		        camera = new THREE.PerspectiveCamera(10, window.innerWidth / window.innerHeight, 1, 100);
+		        //camera.position.set(0,3,3);
+		        //camera.position.set(0.75,-10,0.1); camera.up = new THREE.Vector3(0,0,1); camera.lookAt(new THREE.Vector3(0.75,0.1,0.1));
+		        //camera.position.set(0.75,0.1,10); camera.up = new THREE.Vector3(0,1,0); camera.lookAt(new THREE.Vector3(0.75,0.1,0.1));
+		        //camera.position.set(-8,-10,5); camera.up = new THREE.Vector3(0,0,1); camera.lookAt(new THREE.Vector3(0.75,0.1,0.1));
+		        camera.position.set(-7,-8,-7); camera.up = new THREE.Vector3(0,0,1); camera.lookAt(new THREE.Vector3(0,0,0));
+		        //camera.position.set(0,-20,0); camera.up = new THREE.Vector3(0,0,1); camera.lookAt(new THREE.Vector3(0,0,0));
+		        //// SCENE ////
+		        scene = new THREE.Scene();
+		        //// FIGURES ////
+		        createBarMesh();
+		        createGUI();
+		        scene.add(figure);
+                //// CONTAINER ////
+		        container = document.createElement('div');
+		        document.body.appendChild(container);
+		        //// PROJECTOR ////
+		        projector = new THREE.Projector();
+		        //// RENDERER ////
+		        renderer = new THREE.CanvasRenderer();
+		        renderer.setSize(window.innerWidth, window.innerHeight);
+		        container.appendChild(renderer.domElement);
+		        //// CONTROLS ////
+		        //controls = new THREE.TrackballControls(camera, renderer.domElement);
+                //// EVENTS ////
+		        window.addEventListener('resize', onWindowResize, false);
+		        document.addEventListener('mousemove', onDocumentMouseMove, false);
+		        		        
+		        //// EJES ////
+		        axes = buildAxes(2,0.5,0.5 );
+                scene.add( axes );
+		        
+                //// problema de dinamica ////
+                //valores iniciales
+                for (var ii = 0; ii < 3*NumNodes; ii++) {
+                    VfT[ii] = 0;//u en n+1
+                    V2fT[ii] = 0;//u en n+1/2
+                }
+               /* for (var ii = 0; ii < NumModPOD; ii++) {
+                    Vf[ii][0] = 0;//u en n
+                    Vf[ii][1] = 0;//u en n+1
+                    V2f[ii] = 0;//u en n+1/2
+                    Velf[ii][0] = 0;//v en n
+                    Velf[ii][1] = 0;//v en n+1
+                    Ve2[ii] = 0;//v en n+1/2                    
+                    Acelf[ii][0] = 0;//a en n
+                    Acelf[ii][1] = 0;//a en n+1
+                }  */          
+                time1 = Date.now();
+		    }
+
+		    function onWindowResize() {
+
+		        camera.aspect = window.innerWidth / window.innerHeight;
+		        camera.updateProjectionMatrix();
+
+		        renderer.setSize(window.innerWidth, window.innerHeight);
+		    }
+
+		    function onDocumentMouseMove(event) {
+
+		        // Calcula intersección
+		        event.preventDefault();
+		        var vector = new THREE.Vector3((event.clientX / window.innerWidth) * 2 - 1, -(event.clientY / window.innerHeight) * 2 + 1, 0.5);
+		        projector.unprojectVector(vector, camera);
+		        var ray = new THREE.Ray(camera.position, vector.subSelf(camera.position).normalize());
+		        var intersects = ray.intersectObjects(scene.children);
+                // Cuando hay intersección
+		        if (intersects.length > 0) {
+                    // Cara intersectada
+		            var rollover = intersects[0].faceIndex;
+	                // Etiquetas de los vértices de la cara intersectada
+	                var va = figure.geometry.faces[rollover].a;
+	                var vb = figure.geometry.faces[rollover].b;
+	                var vc = figure.geometry.faces[rollover].c;
+	             /*   // Cálculo del índice más cercano (conf indeformada)
+	                var close2a = distanciacuadrado(Coors[va],intersects[0]);
+	                var close2b = distanciacuadrado(Coors[vb],intersects[0]);
+	                var close2c = distanciacuadrado(Coors[vc],intersects[0]);*/
+	                // Cálculo del índice más cercano (conf deformada)
+	                var close2a = distanciacuadrado2(figure.geometry.vertices[va],intersects[0]);
+	                var close2b = distanciacuadrado2(figure.geometry.vertices[vb],intersects[0]);
+	                var close2c = distanciacuadrado2(figure.geometry.vertices[vc],intersects[0]);
+	                // Valor del vértice cercano
+	                var closeV = (close2a <= close2b && close2a <= close2c) ? va : ((close2b <= close2a && close2b <= close2c) ? vb : vc);
+	                if (LoadPosition > -1) LastLoadPosition = LoadPosition;
+	                LoadPosition = LoadPos[closeV]; 
+                }
+	            else LoadPosition = -1;
+		    }
+
+		    function createBarMesh() {
+
+		        //// GEOMETRY ////
+
+		        // Esto define mi propio Mesh (la barra)
+		        var geometry = new THREE.Geometry();
+		        // Defino los vértices
+		        for (var ii = 0; ii < NumNodes; ii++) {
+		            // Selecciono un punto
+		            var node = new THREE.Vector3(Coors[ii][0], Coors[ii][1], Coors[ii][2]);
+		            // y lo meto en la pila de puntos
+		            geometry.vertices.push(node);
+		        }
+		        // Defino las superficies
+		        for (ii = 0; ii < NumElems; ii++) {
+		            geometry.faces.push(new THREE.Face3(Connect[ii][0] - 1, Connect[ii][1] - 1, Connect[ii][2] - 1));
+		        }
+		        // Calculo las normales
+		        geometry.computeCentroids();
+		        geometry.computeFaceNormals();
+
+                //// MATERIAL ////
+
+		        // Creo el array de materiales (colores) para cada cara
+		        var materials = new Array();
+		        for (var ii = 0; ii < geometry.faces.length; ii++) {
+		            // Creo el color
+		                materials.push(new THREE.MeshBasicMaterial({ color: 0x0000ff }));
+		            // Asigno a cara
+		                geometry.faces[ii].materialIndex = ii;
+		        }
+
+                //// MESH ////
+
+		        // Creo la figura inicial (la barra)
+		        figure = new THREE.Mesh(geometry, new THREE.MeshFaceMaterial(materials));         
+		    }
+
+		    function createGUI() {
+
+		        var gui = new dat.GUI();
+
+		      //  gui.add(slider, 'xLoc').min(0).max(20).step(1).name('Eje X').listen(); ;
+		      //  gui.add(slider, 'zLoc').min(0).max(2).step(1).name('Eje Z').listen(); ;
+		        
+		        gui.add(slider, 'xLoc').min(0).max(30).step(1).name('deltat(ms)').listen(); ;
+		        gui.add(slider, 'zLoc').min(0).max(48).step(1).name('LP').listen(); ;
+		    }
+
+		    function hexToR(h) { return parseInt((cutHex(h)).substring(0, 2), 16) / 255 }
+		    function hexToG(h) { return parseInt((cutHex(h)).substring(2, 4), 16) / 255 }
+		    function hexToB(h) { return parseInt((cutHex(h)).substring(4, 6), 16) / 255 }
+		    function cutHex(h) { return (h.charAt(0) == "#") ? h.substring(1, 7) : h }
+
+		    function setBarProperties() {
+                
+                // Desplazamientos
+		        var xDespl, yDespl, zDespl;
+		        var Gdin = new Array(NumModPOD);
+		        var Gload = new Array(NumModPOD);
+                /*var filaU = new Array(NumModPOD);
+                var filaV = new Array(NumModPOD);
+                var filaA = new Array(NumModPOD);*/
+               
+                /*// Nodo sobre el que se aplica la carga
+		        loadednode = OrdenNodos[slider.zLoc][slider.xLoc];
+
+		        // Se cambian los valores antiguos por los actuales
+		        slider.xLastLoc = slider.xLoc;
+		        slider.zLastLoc = slider.zLoc;*/
+
+                //slider.xLoc = LastLoadPosition;
+                slider.zLoc = LoadPosition;
+                
+                time2 = Date.now();
+                deltatime = time2-time1;
+                slider.xLoc = deltatime;
+                time1 = time2;
+                //deltat = deltatime/10000;
+
+                //substep1
+                fi1fi2n1U = evalua_fforma(tamu,U0,U1,Vf,0);
+                fi1fi2n1V = evalua_fforma(tamv,V0,V1,Velf,0);
+                fi1fi2n1A = evalua_fforma(tama,A0,A1,Acelf,0);
+                for (var jj = 0; jj < NumIter1; jj++) {
+                    Gdin[jj] = 0;
+                    for ( var i = 0; i < NumModPOD; i++){
+                        aporteU = (fi1fi2n1U[i][0]*F1U[i][jj][fi1fi2n1U[i][2]]+fi1fi2n1U[i][1]*F1U[i][jj][fi1fi2n1U[i][2]+1]);
+                        aporteV = (fi1fi2n1V[i][0]*F1V[i][jj][fi1fi2n1V[i][2]]+fi1fi2n1V[i][1]*F1V[i][jj][fi1fi2n1V[i][2]+1]);
+                        aporteA = (fi1fi2n1A[i][0]*F1A[i][jj][fi1fi2n1A[i][2]]+fi1fi2n1A[i][1]*F1A[i][jj][fi1fi2n1A[i][2]+1]);
+                        Gdin[jj] = Gdin[jj] + aporteU*aporteV*aporteA;
+                    }
+                    if (LoadPosition > -1) Gload[jj] = F1S[jj][LoadPosition-1]*F1I[jj][1];
+                    else Gload[jj] = F1S[jj][LastLoadPosition-1]*F1I[jj][0];
+                }
+
+                //calculo el desplazamiento en n+1/2 de todos los nodos
+		        for (var ii = 0; ii < NumGdl; ii++) {
+		            V2fT[ii] = 0;
+		            for (var jj = 0; jj < NumIter1; jj++) {	                
+		                V2fT[ii] += F1Coor[jj][ii] * Gdin[jj] * Gload[jj];
+		            }
+		        }
+		        //calculo u,v en base reducida en n+1/2
+	            for ( var i = 0; i < NumModPOD; i++){
+	                V2f[i] = 0;
+	                for (var jj = 0; jj < NumGdl; jj++){
+	                    V2f[i] += Ai[i][jj]*V2fT[jj];
+	                }
+	                Ve2[i] = 4*(V2f[i]-Vf[i][0])/deltat-Velf[i][0];
+	            }
+		         
+		        //substep2  
+		        fi1fi2n1A = evalua_fforma2(tamu,U0,U1,V2f); 
+		        
+                for (var jj = 0; jj < NumIter2; jj++) {
+                    Gdin[jj] = 0;
+                    for ( var i = 0; i < NumModPOD; i++){
+                        aporteU = (fi1fi2n1U[i][0]*F2U[i][jj][fi1fi2n1U[i][2]]+fi1fi2n1U[i][1]*F2U[i][jj][fi1fi2n1U[i][2]+1]);
+                        aporteV = (fi1fi2n1V[i][0]*F2V[i][jj][fi1fi2n1V[i][2]]+fi1fi2n1V[i][1]*F2V[i][jj][fi1fi2n1V[i][2]+1]);
+                        aporteA = (fi1fi2n1A[i][0]*F2A[i][jj][fi1fi2n1A[i][2]]+fi1fi2n1A[i][1]*F2A[i][jj][fi1fi2n1A[i][2]+1]);
+                        Gdin[jj] = Gdin[jj] + aporteU*aporteV*aporteA;
+                    }
+                    if (LoadPosition > -1) Gload[jj] = F2S[jj][LoadPosition-1]*F2I[jj][1];
+                    else Gload[jj] = F2S[jj][LastLoadPosition-1]*F2I[jj][0];
+                }
+		        
+
+                //calculo el desplazamiento en n+1 de todos los nodos
+                
+		        for (var ii = 0; ii < NumGdl; ii++) {
+		            VfT[ii] = 0;
+		            for (var jj = 0; jj < NumIter2; jj++) {	                
+		                VfT[ii] += F2Coor[jj][ii] * Gdin[jj] * Gload[jj];
+		            }
+		        }
+		            		           
+		        //calculo u,v en base reducida en n+1           
+	            for ( var i = 0; i < NumModPOD; i++){
+	                Vf[i][1] = 0;
+	                for (var jj = 0; jj < NumGdl; jj++){
+	                    Vf[i][1] += Ai[i][jj]*VfT[jj];
+	                }
+	                Velf[i][1] = (Vf[i][0]-4*V2f[i]+3*Vf[i][1])/deltat;
+	                Acelf[i][1] = (Velf[i][0]-4*Ve2[i]+3*Velf[i][1])/deltat;
+	            }
+	            
+	            //actualizo los valores que tengo guardados en n y n+1
+	            for ( var i = 0; i < NumModPOD; i++){
+	                Vf[i][0] = Vf[i][1];
+	                Velf[i][0] = Velf[i][1];
+	                Acelf[i][0] = Acelf[i][1];
+	            }
+	            
+	            // Desplazo vértices
+	            for (var ii = 0; ii < 121; ii++) {
+	                var Vftx = VfT[3*ii];
+	                var Vfty = VfT[3*ii+1];
+	                var Vftz = VfT[3*ii+2];
+	                var nodo = (Gdl[3*ii]-1)/3;//comenzando la numeracion en 0
+	                var nodosup = mapping[ii]-1;
+		            figure.geometry.vertices[nodosup].x = Coors[nodosup][0] + Vftx*escala;
+		            figure.geometry.vertices[nodosup].y = Coors[nodosup][1] + Vfty*escala;
+		            figure.geometry.vertices[nodosup].z = Coors[nodosup][2] + Vftz*escala;
+		        }
+
+
+
+		        figure.geometry.computeCentroids();
+		        figure.geometry.computeFaceNormals();
+
+		        // Cambio color caras
+		        var dd = new Array;
+
+		        for (var ii = 0; ii < NumElems; ii++) {
+		            // Vértices que se corresponden con la cara ii
+		            var va = figure.geometry.faces[ii].a;
+		            var vb = figure.geometry.faces[ii].b;
+		            var vc = figure.geometry.faces[ii].c;
+		            // Posición inicial de los vértices
+		            var vai = [Coors[va][0], Coors[va][1], Coors[va][2]];
+		            var vbi = [Coors[vb][0], Coors[vb][1], Coors[vb][2]];
+		            var vci = [Coors[vc][0], Coors[vc][1], Coors[vc][2]];
+		            // Posición final de los vértices
+		            var vaf = [figure.geometry.vertices[va].x, figure.geometry.vertices[va].y, figure.geometry.vertices[va].z];
+		            var vbf = [figure.geometry.vertices[vb].x, figure.geometry.vertices[vb].y, figure.geometry.vertices[vb].z];
+		            var vcf = [figure.geometry.vertices[vc].x, figure.geometry.vertices[vc].y, figure.geometry.vertices[vc].z];
+		            // Cálculo del desplazamiento de cada vértice
+		            var vad = Math.sqrt(Math.pow(vaf[0] - vai[0], 2) + Math.pow(vaf[1] - vai[1], 2) + Math.pow(vaf[2] - vai[2], 2));
+		            var vbd = Math.sqrt(Math.pow(vbf[0] - vbi[0], 2) + Math.pow(vbf[1] - vbi[1], 2) + Math.pow(vbf[2] - vbi[2], 2));
+		            var vcd = Math.sqrt(Math.pow(vcf[0] - vci[0], 2) + Math.pow(vcf[1] - vci[1], 2) + Math.pow(vcf[2] - vci[2], 2));
+		            // Desplazamiento (valor entre 0 y 1)
+		            dd[ii] = Math.round(1000 * (vad + vbd + vcd) / MAX_DESPL);
+                    // Color de la cara
+		            var ddcol = rainbow.colourAt(dd[ii]);
+		            // Se colorean las caras de acuerdo con el desplazamiento
+		            figure.material.materials[ii].color.r = hexToR(ddcol);
+		            figure.material.materials[ii].color.g = hexToG(ddcol);
+		            figure.material.materials[ii].color.b = hexToB(ddcol);
+		        }
+		    }
+
+            function evalua_fforma(tamx,x0,x1,cx,pos){
+                var x,n1,n2,fi1,fi2;
+                var x0,x1;
+                incx = (x1-x0)/tamx;
+                var aux = [];
+                for(var i=0; i<NumModPOD; i++) {
+                    aux[i] = new Array(3);
+                }
+                for ( var i = 0; i < NumModPOD; i++){
+                    x = (cx[i][pos]-x0)/incx;
+                    aux[i][2] = Math.floor(x);//n1
+                    //n2 = Math.ceil(x);//N2 = n1+1;
+                    aux[i][0] = ((aux[i][2])+1)-x;
+                    aux[i][1] = x-(aux[i][2]);
+                }
+                return aux;
+            }
+            function evalua_fforma2(tamx,x0,x1,cx){
+                var x,n1,n2,fi1,fi2;
+                var x0,x1;
+                incx = (x1-x0)/tamx;
+                var aux = [];
+                for(var i=0; i<NumModPOD; i++) {
+                    aux[i] = new Array(3);
+                }
+                for ( var i = 0; i < NumModPOD; i++){
+                    x = (cx[i]-x0)/incx;
+                    aux[i][2] = Math.floor(x);//n1
+                    //n2 = Math.ceil(x);//N2 = n1+1;
+                    aux[i][0] = ((aux[i][2])+1)-x;
+                    aux[i][1] = x-(aux[i][2]);
+                }
+                return aux;
+            }
+
+//NO SE USA
+            function CalculaAporteDinamica(modo,substep){
+            //En vez de interpolar como David, busco el nodo más cercano de su correspondiente discretización
+                var x,n1,n2,fi1,fi2;
+               // var filaU,filaV,filaA;
+                var incU = (U1-U0)/tamu;
+                var incV= (V1-V0)/tamv;
+                var incA = (A1-A0)/tama;
+                var aporte = 1;
+                for ( var i = 0; i < NumModPOD; i++){
+                    if (substep == 1){
+                        x = (Vf[i][1]-U0)/incU;
+                        n1 = Math.floor(x);
+                        n2 = Math.ceil(x);
+                        fi1 = n2-x;
+                        fi2 = x-n1;
+                        aporte = aporte*(fi1*F1U[i][modo][n1]+fi2*F1U[i][modo][n2]);
+                        x = (Velf[i][1]-V0)/incV;
+                        n1 = Math.floor(x); n2 = Math.ceil(x);
+                        aporte = aporte*((n2-x)*F1V[i][modo][n1]+(x-n1)*F1V[i][modo][n2]);
+                        x = (Acelf[i][1]-A0)/incA;
+                        n1 = Math.floor(x); n2 = Math.ceil(x);
+                        aporte = aporte*((n2-x)*F1A[i][modo][n1]+(x-n1)*F1A[i][modo][n2]);
+                      /*  filaUsup = Math.ceil((Vf[i][0]-U0)/incU);//despl en n
+                        filaUinf = Math.floor((Vf[i][0]-U0)/incU);//despl en n
+                        filaV = Math.round((Velf[i][0]-V0)/incV);//veloc en n
+                        filaA = Math.round((Acelf[i][0]-A0)/incA);//acel en n
+                        if (filaU < 0) filaU = 0;
+                        else if (filaU > tamu) filaU = tamu;
+                        if (filaV < 0) filaV = 0;
+                        else if (filaV > tamv) filaV = tamv;
+                        if (filaA < 0) filaA = 0;
+                        else if (filaA > tama) filaA = tama;
+                        aporte = F1U[i][modo][filaU-1]*F1V[i][modo][filaV-1]*F1A[i][modo][filaA-1];*/
+                    }
+                    else{
+                        filaU = Math.round((Vf[i][0]-U0)/incU);//como antes
+                        filaV = Math.round((Velf[i][0]-V0)/incV);//como antes
+                        filaA = Math.round((V2f[i]-U0)/incU);//modificado
+                        aporte = F2U[i][modo][filaU]*F2V[i][modo][filaV]*F2A[i][modo][filaA];
+                    }
+                }
+                return aporte;
+            }
+                        
+//NO SE USA               
+            function CalculaAporteCarga(modo,substep){
+                var aporte=0;
+                if (LastLoadPosition == -1 && LoadPosition == -1) aporte = 0;//todavía no he tocado la viga
+                else{
+                    if (LoadPosition > -1){//está cargado. Cojo la posición de carga actual
+                        if (substep == 1) aporte = F1S[modo][LoadPosition-1]*F1I[modo][1];
+                        else aporte = F2S[modo][LoadPosition-1]*F2I[modo][1];
+                    }
+                    else{//no está cargado. Cojo la última posición de carga
+                        if (substep == 1) aporte = F1S[modo][LastLoadPosition-1]*F1I[modo][0];
+                        else aporte = F2S[modo][LastLoadPosition-1]*F2I[modo][0];
+                    }
+                }               
+                return aporte;
+            }
+            
+		    function animate() {
+
+		        if (!(LastLoadPosition == -1 && LoadPosition == -1)) {
+		            setBarProperties();
+		        }
+
+		        camera.lookAt(scene.position);
+
+		        render();
+		        requestAnimationFrame(animate);
+
+		    }
+
+		    function render() {
+
+		        var timer = Date.now() - start;
+		        //controls.update();
+                renderer.render(scene, camera);
+		    }
+		    
+		    function buildAxes( Lx,Ly,Lz ) {
+                var axes = new THREE.Object3D();
+
+                axes.add( buildAxis( new THREE.Vector3( 0, 0, 0 ), new THREE.Vector3( Lx, 0, 0 ), 0xFF0000 ) ); // +X
+                axes.add( buildAxis( new THREE.Vector3( 0, 0, 0 ), new THREE.Vector3( 0, Ly, 0 ), 0x00FF00 ) ); // +Y
+                axes.add( buildAxis( new THREE.Vector3( 0, 0, 0 ), new THREE.Vector3( 0, 0, Lz ), 0x0000FF ) ); // +Z
+                return axes;
+            }
+            function buildAxis( src, dst, colorHex ) {
+                var geom = new THREE.Geometry(),
+                mat;
+                mat = new THREE.LineBasicMaterial({ linewidth: 1, color: colorHex });
+                geom.vertices.push( src.clone() );
+                geom.vertices.push( dst.clone() );
+                var axis = new THREE.Line( geom, mat, THREE.LinePieces );
+                return axis;
+            }
+            
+            function distanciacuadrado(p1,p2){
+                return (p1[0]-p2.point.x)*(p1[0]-p2.point.x)+(p1[1]-p2.point.y)*(p1[1]-p2.point.y)+(p1[2]-p2.point.z)*(p1[2]-p2.point.z);
+            }            
+            function distanciacuadrado2(p1,p2){
+                return (p1.x-p2.point.x)*(p1.x-p2.point.x)+(p1.y-p2.point.y)*(p1.y-p2.point.y)+(p1.z-p2.point.z)*(p1.z-p2.point.z);
+            }
+
+        </script>
+	</body>
+</html>
