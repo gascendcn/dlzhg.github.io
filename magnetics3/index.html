@@ -1,0 +1,54 @@
+﻿<!DOCTYPE html>
+
+<html>
+  <head>
+    <title>Magnetics</title>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <link rel="stylesheet" href="styles.css">
+
+    <script src="aframe.min.js"></script>
+    <script src="aframe-ar.js"></script>
+    <script src="gesture-detector.js"></script>
+    <script src="gesture-handler.js"></script>
+  </head>
+
+  <body>
+      <a-scene arjs
+               embedded
+               renderer="logarithmicDepthBuffer: true;"
+               vr-mode-ui="enabled: false"
+               gesture-detector
+               id="scene">
+          <a-assets>
+              <a-asset-item id="bowser"
+                            src="https://cdn.glitch.com/60168049-8d98-4747-917a-c7eaca129c96%2Fhelm1.gltf">
+              </a-asset-item>
+          </a-assets>
+
+          <a-marker preset="hiro"
+                    raycaster="objects: .clickable"
+                    emitevents="true"
+                    cursor="fuse: false; rayOrigin: mouse;"
+                    id="markerA">
+              <!-- <a-marker-camera
+    type ="pattern"
+    patternUrl="pattern1.patt"></a-marker-camera>
+          <a-marker type="pattern"
+                    patternUrl="pattern1.patt">-->
+
+              <a-entity id="bowser-model"
+                        gltf-model="#bowser"
+                        position="0 0 0"
+                        scale="3.5 3.5 3.5"
+                        class="clickable"
+                        gesture-handler>
+              </a-entity>
+             
+              
+              <a-plane id="ap2" src="https://cdn.glitch.com/41166c32-48f1-4544-a272-97f71f52266c%2Fpic1.png" width="1.15" height="5.96" position="3.6 0 0" rotation="-90 0 0" scale="0.5 0.5 0.5"gesture-handler> </a-plane>
+          </a-marker>
+          <a-entity camera></a-entity>
+      </a-scene>
+  </body>
+</html>
